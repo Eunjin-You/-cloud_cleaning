@@ -1,1 +1,49 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>클라우드 정리</title><style>*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:#f4f7f4;color:#253a2e;margin:0;display:grid;place-items:center;min-height:100vh;padding:24px}.wrap{width:min(650px,100%)}h1{font-size:clamp(28px,5vw,42px);letter-spacing:-1px;margin:0 0 10px}p{color:#778b7e;line-height:1.7;margin-bottom:30px}.links{display:grid;gap:12px}a{display:flex;align-items:center;gap:18px;text-decoration:none;color:#263f30;background:white;border:1px solid #e3ebe5;border-radius:16px;padding:21px;box-shadow:0 8px 25px #24432c0b;font-weight:700}a:hover{border-color:#8bb99b;transform:translateY(-2px)}.icon{font-size:30px;width:48px;text-align:center}.small{display:block;font-size:13px;font-weight:400;color:#819187;margin-top:5px}</style></head><body><main class="wrap"><h1>클라우드 정리를 시작해볼까요?</h1><p>체험해 볼 정리 방법을 선택해 주세요.</p><div class="links"><a href="./책상_청소형_GitHub용/"><span class="icon">🧹</span><span>책상 청소형<span class="small">하나씩 정리하며 책상을 깨끗하게</span></span></a><a href="./북극곰_환경형_GitHub용/"><span class="icon">🐻‍❄️</span><span>북극곰 환경형<span class="small">북극곰에게 빙하를 되돌려주세요</span></span></a><a href="./일반_정리형_GitHub용/"><span class="icon">☁️</span><span>일반 정리형<span class="small">파일을 간편하게 확인하고 정리하기</span></span></a></div></main></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#e8eae5">
+  <title>작은 여유 · 클라우드 정리 프로토타입</title>
+  <meta name="description" content="클라우드 정리를 위한 일반형, 환경형, 게임형 모바일 HCI 프로토타입입니다.">
+  <link rel="stylesheet" href="./shared/style.css?v=12">
+  <link rel="stylesheet" href="./shared/play.css?v=12">
+</head>
+<body class="lab-body">
+  <main class="prototype-lab">
+    <header class="lab-header">
+      <span class="wordmark"><svg class="icon" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 18h12a4 4 0 0 0 .6-7.95A6.5 6.5 0 0 0 6.2 8.3 4.9 4.9 0 0 0 6 18Z"/></svg>작은 여유<span class="brand-period">.</span></span>
+      <span class="lab-tag">HCI 수업 프로토타입</span>
+    </header>
+    <section class="lab-title">
+      <div class="eyebrow">클라우드에도 새로운 시작을</div>
+      <h1>파일을 줄이고,<br><em>여유를 더해요.</em></h1>
+      <p>같은 파일, 서로 다른 세 가지 정리 방식.<br>마음에 드는 방식으로 가볍게 시작해 보세요.</p>
+    </section>
+    <nav class="prototype-options" aria-label="정리 방식 선택">
+      <a class="prototype-option" href="./일반_정리형_GitHub용/index.html">
+        <div class="option-scene" aria-hidden="true"><div class="mini-cabinet"><i></i><i></i><i></i><i></i></div></div>
+        <span class="option-label">일반 정리형</span>
+        <h2>파일 하나씩, 차근차근.</h2>
+        <p>서랍을 열어 내용을 살펴보고,<br>밀어서 보관·보류·삭제해요.</p>
+        <span class="option-open">일반형 시작하기</span>
+      </a>
+      <a class="prototype-option" href="./북극곰_환경형_GitHub용/index.html">
+        <div class="option-scene mini-polar" aria-hidden="true"><img src="./북극곰_환경형_GitHub용/bear-anime-sad.png" alt=""><img src="./북극곰_환경형_GitHub용/ice-anime.png" alt=""></div>
+        <span class="option-label">환경 영향형</span>
+        <h2>북극곰의 집이 녹고 있어요.</h2>
+        <p>떨어지는 빙하를 지켜보고,<br>파일을 지워 보금자리를 되찾아 줘요.</p>
+        <span class="option-open">환경형 시작하기</span>
+      </a>
+      <a class="prototype-option" href="./책상_청소형_GitHub용/index.html">
+        <div class="option-scene mini-game" aria-hidden="true"><div class="mini-folders"><i></i><i></i><i></i></div></div>
+        <span class="option-label">게임 정리형</span>
+        <h2>구기고 던지면, 정리 끝!</h2>
+        <p>아래로 쓱 밀면 휴지통에 쏙!<br>콤보를 쌓으며 신나게 정리해요.</p>
+        <span class="option-open">게임형 시작하기</span>
+      </a>
+    </nav>
+    <footer class="lab-footer"><span>HCI 수업을 위한 클라우드 정리 체험입니다.<br>예시 파일을 사용하며, 진행 상황은 브라우저에 저장돼요.</span><span class="keyboard-note">손가락으로 밀거나 버튼·키보드로 조작할 수 있어요.<br>폴더를 열면 소리가 시작돼요.</span></footer>
+  </main>
+</body>
+</html>
