@@ -1,6 +1,8 @@
 (function () {
   'use strict';
-  let context, master, timer, step = 0, loading;
+  let context, master, loading;
+  let musicBuffer, musicLoading, musicBus, musicSource, musicWanted = false;
+  const musicBpm = 138, musicBar = 240 / musicBpm, musicLevel = .85;
   const voices = new Set();
   const prefs = { sound: true, haptics: true, music: true, volume: .35 };
   const script = document.currentScript?.src || new URL('../assets/js/audio.js', document.baseURI).href;
@@ -58,11 +60,13 @@
     }
     if (context?.state === 'suspended') context.resume().catch(() => {});
     loadClips();
+    if (document.body.dataset.mode === 'cleaning') prepareMusic();
   }
   function playRecording(name) {
     if (!prefs.sound || !prefs.volume || document.hidden) return;
     unlock();
     const clip = clips[name];
+    duckMusic(clip.duration);
     if (clip.buffer && context) {
       const now = context.currentTime, source = context.createBufferSource(), gain = context.createGain();
       const duration = Math.min(clip.duration, clip.buffer.duration);
@@ -124,32 +128,136 @@
     try { return navigator.vibrate(pattern) !== false; } catch { return false; }
   }
   function testHaptics() { return vibrate([25, 55, 45]); }
-  function start() {
-    unlock(); if (timer || !prefs.music) return;
-    step = 0;
-    timer = setInterval(() => {
-      if (!context || !prefs.sound || !prefs.music || document.hidden) return;
-      // A very quiet, low register pulse; no high pitched arpeggio or combo beeps.
-      const now = context.currentTime, tone = context.createOscillator(), gain = context.createGain();
-      tone.type = 'sine'; tone.frequency.value = [130.81, 164.81, 146.83, 196][Math.floor(step++ / 2) % 4];
-      gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(.025, now + .02); gain.gain.exponentialRampToValueAtTime(.0001, now + .19);
-      tone.connect(gain); gain.connect(master); tone.start(); tone.stop(now + .2);
-    }, 520);
+  // Render an original eight-bar groove once. Buffer looping keeps the beat steady
+  // while the browser animates files, with no timer-driven notes during play.
+  function prepareMusic() {
+    if (musicLoading) return musicLoading;
+    const Renderer = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!Renderer || !context) return Promise.resolve();
+    const rate = 24000, loopEnd = musicBar * 9;
+    const renderer = new Renderer(1, Math.ceil((loopEnd + .5) * rate), rate);
+    const mix = renderer.createGain(); mix.gain.value = .9; mix.connect(renderer.destination);
+    const noise = renderer.createBuffer(1, Math.ceil(rate * .3), rate);
+    const data = noise.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const hz = midi => 440 * 2 ** ((midi - 69) / 12);
+    const filters = new Map();
+    function instrumentFilter(frequency, type = 'lowpass') {
+      const key = `${type}-${frequency}`;
+      if (!filters.has(key)) {
+        const filter = renderer.createBiquadFilter(); filter.type = type;
+        filter.frequency.value = frequency; filter.Q.value = .5;
+        filter.connect(mix); filters.set(key, filter);
+      }
+      return filters.get(key);
+    }
+    function tone(frequency, at, duration, level, type = 'triangle', cutoff = 1800, fallTo = 0) {
+      const voice = renderer.createOscillator(), gain = renderer.createGain();
+      voice.type = type; voice.frequency.setValueAtTime(frequency, at);
+      if (fallTo) voice.frequency.exponentialRampToValueAtTime(fallTo, at + .1);
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(level, at + .008);
+      gain.gain.exponentialRampToValueAtTime(.0001, at + duration);
+      voice.connect(gain); gain.connect(instrumentFilter(cutoff));
+      voice.start(at); voice.stop(at + duration + .01);
+    }
+    function percussion(at, duration, level, frequency) {
+      const voice = renderer.createBufferSource(), gain = renderer.createGain();
+      voice.buffer = noise;
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(level, at + .003);
+      gain.gain.exponentialRampToValueAtTime(.0001, at + duration);
+      voice.connect(gain); gain.connect(instrumentFilter(frequency, 'bandpass'));
+      voice.start(at); voice.stop(at + duration + .005);
+    }
+    const chords = [[62, 66, 69, 73], [61, 64, 69, 71], [62, 66, 69, 74], [62, 66, 67, 71]];
+    const roots = [50, 45, 47, 43];
+    const melody = [[66, 69, 73, 69, 66], [64, 69, 71, 69, 64], [66, 69, 74, 73, 69], [67, 71, 69, 66, 64]];
+    const melodySteps = [2, 5, 7, 10, 14];
+    const sixteenth = 60 / musicBpm / 4;
+    // A preceding bar carries note tails across the loop boundary naturally.
+    for (let bar = 0; bar < 9; bar++) {
+      const phrase = (bar + 7) % 8, chord = Math.floor(phrase / 2);
+      for (let step = 0; step < 16; step++) {
+        const at = bar * musicBar + step * sixteenth;
+        if (step % 4 === 0) tone(165, at, .2, .5, 'sine', 1000, 66);
+        if (step === 14 && phrase % 2) tone(145, at, .13, .19, 'sine', 900, 70);
+        if (step === 4 || step === 12) {
+          percussion(at + .006, .11, .19, 1500);
+          tone(190, at, .07, .045, 'triangle', 900);
+        }
+        if (step % 2 === 0) percussion(at + (step % 4 ? .009 : 0), .037, step % 4 ? .085 : .04, 4100);
+        if (step === 7 || step === 15) percussion(at + .009, .025, .028, 3500);
+        if ([0, 3, 6, 8, 10, 14].includes(step)) {
+          const octave = step === 6 || step === 14 ? 12 : 0;
+          tone(hz(roots[chord] + octave), at, step === 0 || step === 8 ? .24 : .15, .19, 'triangle', 780);
+        }
+        if ([2, 6, 10, 14].includes(step)) {
+          chords[chord].forEach((note, i) => tone(hz(note), at + .009 + i * .003, .21, .045, 'triangle', 1700));
+        }
+        const index = melodySteps.indexOf(step);
+        if (index >= 0) {
+          const note = phrase % 2 && index === 4 ? melody[chord][0] + 12 : melody[chord][index];
+          tone(hz(note), at + .012, .26, .095, 'sine', 2300);
+          tone(hz(note) * 2, at + .012, .12, .018, 'sine', 2300);
+        }
+      }
+    }
+    musicLoading = renderer.startRendering().then(buffer => {
+      musicBuffer = buffer;
+      if (musicWanted) playMusic();
+      return buffer;
+    }).catch(() => { musicLoading = null; });
+    return musicLoading;
   }
-  function stop() { clearInterval(timer); timer = null; }
+  function playMusic() {
+    if (musicSource || !musicWanted || !musicBuffer || !context || !prefs.music || !prefs.sound || !prefs.volume || document.hidden) return;
+    if (!musicBus) { musicBus = context.createGain(); musicBus.connect(master); }
+    const now = context.currentTime, source = context.createBufferSource();
+    source.buffer = musicBuffer; source.loop = true;
+    source.loopStart = musicBar; source.loopEnd = musicBar * 9;
+    musicBus.gain.cancelScheduledValues(now);
+    musicBus.gain.setValueAtTime(0, now);
+    musicBus.gain.linearRampToValueAtTime(musicLevel, now + .18);
+    source.connect(musicBus); musicSource = source;
+    source.onended = () => { source.disconnect(); if (musicSource === source) musicSource = null; };
+    source.start(now, source.loopStart);
+  }
+  function duckMusic(duration) {
+    if (!musicSource || !musicBus) return;
+    const now = context.currentTime;
+    musicBus.gain.cancelScheduledValues(now);
+    musicBus.gain.setTargetAtTime(.32, now, .015);
+    musicBus.gain.setTargetAtTime(musicLevel, now + Math.min(duration, .8), .14);
+  }
+  function pauseMusic() {
+    if (!musicSource) return;
+    const now = context.currentTime, source = musicSource; musicSource = null;
+    musicBus.gain.cancelScheduledValues(now);
+    musicBus.gain.setTargetAtTime(0, now, .015);
+    source.stop(now + .06);
+  }
+  function start() {
+    musicWanted = true; unlock();
+    return prepareMusic().then(playMusic);
+  }
+  function stop() { musicWanted = false; pauseMusic(); }
   function set(key, value) {
     prefs[key] = key === 'volume' ? Math.max(0, Math.min(1, Number(value) || 0)) : value;
     if (master) master.gain.setTargetAtTime(prefs.sound ? prefs.volume : 0, context.currentTime, .03);
-    if (key === 'music' && !value) stop();
+    if (!prefs.music || !prefs.sound || !prefs.volume) pauseMusic();
+    else if (musicWanted) playMusic();
     if (key === 'sound' && !value || key === 'volume' && !prefs.volume) {
       for (const clip of Object.values(clips)) for (const element of clip.pool) element.pause();
     }
   }
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      pauseMusic();
       context?.suspend();
       for (const clip of Object.values(clips)) for (const element of clip.pool) element.pause();
-    } else if (context?.state === 'suspended') context.resume().catch(() => {});
+    } else if (context?.state === 'suspended') context.resume().then(playMusic).catch(() => {});
+    else if (musicWanted) playMusic();
   });
   window.CleanupAudio = { prefs, unlock, paper, crumple, whoosh, crack, restore, impact, applause, vibrate, testHaptics, hapticSupport, start, stop, set };
 })();
