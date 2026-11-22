@@ -11,11 +11,16 @@
   let iceHistory = [], iceEvent = '', iceEventAt = 0, tickAt = performance.now();
   if (saved.sound === false) audio.set('sound', false);
   if (saved.haptics === false) audio.set('haptics', false);
+  if (saved.music === false) audio.set('music', false);
+  if (Number.isFinite(saved.volume)) audio.set('volume', saved.volume);
   const app = document.querySelector('#app');
   const labels = { assignments: '학교 과제', leisure: '취미 생활', study: '공부 자료', media: '사진·동영상' };
   const colors = ['#dfb56a', '#a5b49b', '#9bacbf', '#c5a4ae'];
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let view = 'home', busy = false, stage = 'review', modal = '', activeFolder = null;
+  const tutorialKey = `little-space-guide-swipes-v1-${mode}`;
+  let tutorialSeen = false;
+  try { tutorialSeen = localStorage.getItem(tutorialKey) === 'seen'; } catch {}
+  let view = 'home', busy = false, stage = 'review', modal = tutorialSeen ? '' : 'tutorial', activeFolder = null;
   let toastTimer, animationTimer, drag = null, suppressClick = false;
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const paths = {
@@ -38,6 +43,11 @@
   };
   function icon(name, cls = '') { return `<svg class="icon ${cls}" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.file}</svg>`; }
   function save() { try { localStorage.setItem(storageKey, JSON.stringify({ ...model.snapshot(), ...audio.prefs, ...(climate ? { ice: ice.snapshot() } : {}) })); } catch {} }
+  function swipeAction(dx, dy, threshold = 60) {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < threshold) return '';
+    if (Math.abs(dx) > Math.abs(dy)) return 'hold';
+    return dy > 0 ? 'delete' : 'keep';
+  }
   function header(back = false) {
     return `<header class="app-header">${back ? `<button class="icon-button" data-do="home" aria-label="책상으로 돌아가기">${icon('back')}</button>` : `<a class="wordmark" href="../index.html" aria-label="정리 방식 선택">${icon('cloud')}<span>작은 여유<span class="brand-period">.</span></span></a>`}${back ? `<span class="header-title">${model.held ? '보류' : labels[activeFolder]}</span>` : ''}<div class="header-tools"><button class="icon-button" data-do="sound" aria-label="${audio.prefs.sound ? '소리 끄기' : '소리 켜기'}" aria-pressed="${audio.prefs.sound}">${icon(audio.prefs.sound ? 'sound' : 'muted')}</button><button class="icon-button" data-do="settings" aria-label="설정">${icon('settings')}</button></div></header>`;
   }
@@ -79,7 +89,7 @@
   }
   function climateReview() {
     const pct = model.cursor / model.queue.length * 100;
-    return shell(`${header(true)}${arcticScene(true)}<div class="polar-live-rule">${icon('bin')} 삭제하면 빙하가 돌아와요 <span>보관·보류 시 빙하는 늘지 않아요</span></div><section class="session-top"><div class="session-count"><span>지금도 빙하가 녹고 있어요</span><strong>${model.cursor + 1}<small> / ${model.queue.length}</small></strong></div><div class="session-track"><i style="width:${pct}%"></i></div></section><section class="sorting-desk"><div class="paper-stack"><div class="back-paper back-paper-one"></div>${fileCard(model.current)}</div></section><section class="decision-panel"><div class="gesture-guide"><span>왼쪽으로 밀기</span><span>위로 밀기</span><span>오른쪽으로 밀기</span></div><div class="decision-actions"><button class="decision delete-button" data-decision="delete">${icon('bin')}<span>삭제</span></button><button class="decision keep-button" data-decision="keep">${icon('keep')}<span>보관</span></button><button class="decision hold-button" data-decision="hold">${icon('hold')}<span>보류</span></button></div><div class="session-footer"><button class="undo-button" data-do="undo" ${model.history.length ? '' : 'disabled'}>${icon('undo')} 되돌리기</button><span>가상 환경 · ${formatSize(model.stats().freed)} 정리</span></div></section>`, 'review-screen polar-review stage-review');
+    return shell(`${header(true)}${arcticScene(true)}<div class="polar-live-rule">${icon('bin')} 삭제하면 빙하가 돌아와요 <span>보관·보류 시 빙하는 늘지 않아요</span></div><section class="session-top"><div class="session-count"><span>지금도 빙하가 녹고 있어요</span><strong>${model.cursor + 1}<small> / ${model.queue.length}</small></strong></div><div class="session-track"><i style="width:${pct}%"></i></div></section><section class="sorting-desk"><div class="paper-stack"><div class="back-paper back-paper-one"></div>${fileCard(model.current)}</div></section><section class="decision-panel"><div class="gesture-guide"><span>아래로 밀기</span><span>위로 밀기</span><span>좌우로 밀기</span></div><div class="decision-actions"><button class="decision delete-button" data-decision="delete">${icon('bin')}<span>삭제</span></button><button class="decision keep-button" data-decision="keep">${icon('keep')}<span>보관</span></button><button class="decision hold-button" data-decision="hold">${icon('hold')}<span>보류</span></button></div><div class="session-footer"><button class="undo-button" data-do="undo" ${model.history.length ? '' : 'disabled'}>${icon('undo')} 되돌리기</button><span>가상 환경 · ${formatSize(model.stats().freed)} 정리</span></div></section>`, 'review-screen polar-review stage-review');
   }
   function updateArctic(event = '') {
     if (event) { iceEvent = event; iceEventAt = performance.now(); }
@@ -107,25 +117,26 @@
   }
   function fileCard(file) {
     const duplicate = file.duplicateKey && files.some(f => f.id !== file.id && f.duplicateKey === file.duplicateKey && model.decisions[f.id] !== 'delete');
-    return `<article class="paper" id="file-card" tabindex="0" aria-label="${escape(file.name)}. ${game ? '아래로 밀어 구겨서 버리기' : '왼쪽으로 밀어 삭제'}, 위로 밀어 보관, 오른쪽으로 밀어 보류."><div class="paper-top"><span class="file-type type-${file.type.toLowerCase()}">${icon('file')} ${file.type}</span><span>${formatSize(file.sizeMB)}</span></div><h2>${escape(file.name)}</h2><div class="file-age">${file.lastAccessMonths}개월 전 열어봄${duplicate ? '<span class="duplicate-tag">사본 있음</span>' : ''}</div>${previewArt(file)}<div class="preview-label">내용 미리보기</div><p class="file-excerpt" lang="ko">${escape(file.preview.slice(0, 155))}${file.preview.length > 155 ? '…' : ''}</p><div class="paper-footer"><span>${icon('cloud')} ${labels[file.category]}</span><span>예시 파일</span></div><div class="swipe-stamp" id="swipe-stamp" aria-hidden="true"></div></article>`;
+    return `<article class="paper" id="file-card" tabindex="0" aria-label="${escape(file.name)}. ${game ? '아래로 밀어 구겨서 버리기' : '아래로 밀어 삭제'}, 위로 밀어 보관, 좌우로 밀어 보류."><div class="paper-top"><span class="file-type type-${file.type.toLowerCase()}">${icon('file')} ${file.type}</span><span>${formatSize(file.sizeMB)}</span></div><h2>${escape(file.name)}</h2><div class="file-age">${file.lastAccessMonths}개월 전 열어봄${duplicate ? '<span class="duplicate-tag">사본 있음</span>' : ''}</div>${previewArt(file)}<div class="preview-label">내용 미리보기</div><p class="file-excerpt" lang="ko">${escape(file.preview.slice(0, 155))}${file.preview.length > 155 ? '…' : ''}</p><div class="paper-footer"><span>${icon('cloud')} ${labels[file.category]}</span><span>예시 파일</span></div><div class="swipe-stamp" id="swipe-stamp" aria-hidden="true"></div></article>`;
   }
   function review() {
     if (model.done) return complete();
     if (climate) return climateReview();
     const pct = model.cursor / model.queue.length * 100;
-    return shell(`${header(true)}${game ? gameHud() : ''}<section class="session-top"><div class="session-count"><span>${game ? '구기고, 던지고, 가볍게!' : '한 번에 파일 하나씩'}</span><strong>${model.cursor + 1}<small> / ${model.queue.length}</small></strong></div><div class="session-track"><i style="width:${pct}%"></i></div>${game ? `<div class="combo-bar"><span class="combo-badge ${model.combo >= 2 ? 'hot' : ''}">${icon('bolt')} <b>${model.combo > 1 ? `${model.combo}연속 콤보` : '연속 삭제에 도전해요'}</b></span><span>${model.best ? `최고 기록 ${model.best}연속` : '버릴 때마다 경험치 +100'}</span></div>` : '<div class="session-instruction">이 파일, 클라우드에 계속 둘까요?</div>'}</section><section class="sorting-desk"><div class="destination keep-destination">${icon('folder')}<span>보관</span></div><div class="destination hold-destination">${icon('hold')}<span>보류 <b>${model.stats().hold}</b></span></div><div class="desk-grain"></div><div class="paper-stack"><div class="back-paper back-paper-one"></div><div class="back-paper back-paper-two"></div>${fileCard(model.current)}</div>${game ? `<div class="bin-target-ring"></div><div class="trash-bin" id="trash-bin" aria-label="휴지통"><div class="bin-rim"></div><div class="bin-body"><i></i><i></i><i></i><span>${icon('bin')}</span></div><span class="bin-shadow"></span></div><span class="toss-desk-hint">아래로 쓱, 휴지통에 쏙!</span>` : ''}</section><section class="decision-panel"><div class="gesture-guide"><span>${game ? '아래로 밀기' : '왼쪽으로 밀기'}</span><span>위로 밀기</span><span>오른쪽으로 밀기</span></div><div class="decision-actions"><button class="decision delete-button" data-decision="delete">${icon('bin')}<span>${game ? '구겨서 버리기' : '삭제'}</span></button><button class="decision keep-button" data-decision="keep">${icon('keep')}<span>보관</span></button><button class="decision hold-button" data-decision="hold">${icon('hold')}<span>보류</span></button></div><div class="session-footer"><button class="undo-button" data-do="undo" ${model.history.length ? '' : 'disabled'}>${icon('undo')} 되돌리기</button><span>${game ? '한 번만 쓱 밀면 휴지통으로 쏙!' : '천천히 살펴보고 결정해도 괜찮아요.'}</span></div></section>`, 'review-screen stage-review');
+    return shell(`${header(true)}${game ? gameHud() : ''}<section class="session-top"><div class="session-count"><span>${game ? '구기고, 던지고, 가볍게!' : '한 번에 파일 하나씩'}</span><strong>${model.cursor + 1}<small> / ${model.queue.length}</small></strong></div><div class="session-track"><i style="width:${pct}%"></i></div>${game ? `<div class="combo-bar"><span class="combo-badge ${model.combo >= 2 ? 'hot' : ''}">${icon('bolt')} <b>${model.combo > 1 ? `${model.combo}연속 콤보` : '연속 삭제에 도전해요'}</b></span><span>${model.best ? `최고 기록 ${model.best}연속` : '버릴 때마다 경험치 +100'}</span></div>` : '<div class="session-instruction">이 파일, 클라우드에 계속 둘까요?</div>'}</section><section class="sorting-desk"><div class="destination keep-destination">${icon('folder')}<span>보관</span></div><div class="destination hold-destination">${icon('hold')}<span>보류 <b>${model.stats().hold}</b></span></div><div class="desk-grain"></div><div class="paper-stack"><div class="back-paper back-paper-one"></div><div class="back-paper back-paper-two"></div>${fileCard(model.current)}</div>${game ? `<div class="bin-target-ring"></div><div class="trash-bin" id="trash-bin" aria-label="휴지통"><div class="bin-rim"></div><div class="bin-body"><i></i><i></i><i></i><span>${icon('bin')}</span></div><span class="bin-shadow"></span></div><span class="toss-desk-hint">아래로 쓱, 휴지통에 쏙!</span>` : ''}</section><section class="decision-panel"><div class="gesture-guide"><span>아래로 밀기</span><span>위로 밀기</span><span>좌우로 밀기</span></div><div class="decision-actions"><button class="decision delete-button" data-decision="delete">${icon('bin')}<span>${game ? '구겨서 버리기' : '삭제'}</span></button><button class="decision keep-button" data-decision="keep">${icon('keep')}<span>보관</span></button><button class="decision hold-button" data-decision="hold">${icon('hold')}<span>보류</span></button></div><div class="session-footer"><button class="undo-button" data-do="undo" ${model.history.length ? '' : 'disabled'}>${icon('undo')} 되돌리기</button><span>${game ? '한 번만 쓱 밀면 휴지통으로 쏙!' : '천천히 살펴보고 결정해도 괜찮아요.'}</span></div></section>`, 'review-screen stage-review');
   }
   function complete() {
     const sessionFiles = model.queue.map(id => files.find(f => f.id === id));
     const stats = model.held ? { keep: 0, hold: 0, delete: 0, freed: 0 } : model.stats(activeFolder);
     if (model.held) sessionFiles.forEach(f => { const d = model.decisions[f.id]; if (d) stats[d]++; if (d === 'delete') stats.freed += f.sizeMB; });
-    return shell(`${header(true)}<section class="complete-intro"><div class="completion-seal">${icon(game ? 'star' : climate ? 'leaf' : 'keep')}</div><div class="eyebrow">${game ? '파일 더미 정리 완료' : '폴더 정리 완료'}</div><h1>${game ? '정리 끝! 잘했어요.' : climate ? '파일을 줄이면,<br>부담도 줄어요.' : '작은 공간에,<br>조금 더 큰 여유.'}</h1><p>${game ? '파일 더미 하나를 비웠어요. 박수 받아 마땅해요!' : climate ? '더는 필요하지 않은 파일을 정리했어요.' : '파일마다 자리를 정해 줬어요. 책상이 깨끗해졌네요.'}</p></section><div class="complete-scene">${climate ? arcticScene() : scene(true)}</div><section class="result-panel"><div class="result-space"><strong>${formatSize(stats.freed)}</strong><span>확보한 공간</span></div><div class="result-stats"><div>${icon('keep')}<strong>${stats.keep}</strong><span>보관</span></div><div>${icon('hold')}<strong>${stats.hold}</strong><span>보류</span></div><div>${icon('bin')}<strong>${stats.delete}</strong><span>삭제</span></div></div>${game && model.best > 1 ? `<div class="best-streak">${icon('bolt')} 최고 기록: ${model.best}개 연속 삭제</div>` : ''}${climate ? '<p class="result-note">예시 파일의 용량 변화이며, 실제 탄소 감축량은 아니에요.</p>' : ''}<button class="primary-button" data-do="home">책상으로 돌아가기</button>${model.history.length ? `<button class="text-button" data-do="undo">${icon('undo')} 마지막 선택 되돌리기</button>` : ''}</section>`, 'complete-screen');
+    return shell(`${header(true)}<section class="complete-intro"><div class="completion-seal">${icon(game ? 'star' : climate ? 'leaf' : 'keep')}</div><div class="eyebrow">${game ? '파일 더미 정리 완료' : '폴더 정리 완료'}</div><h1>${game ? '정리 끝! 잘했어요.' : climate ? '파일을 줄이면,<br>부담도 줄어요.' : '작은 공간에,<br>조금 더 큰 여유.'}</h1><p>${game ? '파일 더미 하나를 비웠어요. 한결 가벼워졌네요!' : climate ? '더는 필요하지 않은 파일을 정리했어요.' : '파일마다 자리를 정해 줬어요. 책상이 깨끗해졌네요.'}</p></section><div class="complete-scene">${climate ? arcticScene() : scene(true)}</div><section class="result-panel"><div class="result-space"><strong>${formatSize(stats.freed)}</strong><span>확보한 공간</span></div><div class="result-stats"><div>${icon('keep')}<strong>${stats.keep}</strong><span>보관</span></div><div>${icon('hold')}<strong>${stats.hold}</strong><span>보류</span></div><div>${icon('bin')}<strong>${stats.delete}</strong><span>삭제</span></div></div>${game && model.best > 1 ? `<div class="best-streak">${icon('bolt')} 최고 기록: ${model.best}개 연속 삭제</div>` : ''}${climate ? '<p class="result-note">예시 파일의 용량 변화이며, 실제 탄소 감축량은 아니에요.</p>' : ''}<button class="primary-button" data-do="home">책상으로 돌아가기</button>${model.history.length ? `<button class="text-button" data-do="undo">${icon('undo')} 마지막 선택 되돌리기</button>` : ''}</section>`, 'complete-screen');
   }
   function held() {
     const list = files.filter(f => model.decisions[f.id] === 'hold');
     return shell(`${header(true)}<section class="held-screen"><div class="eyebrow">아직 고민되는 파일은 여기에</div><h1>지금 바로<br><em>결정하지 않아도 돼요.</em></h1><p>아직 고민되는 파일을 모아 뒀어요. 준비되면 다시 살펴보세요.</p><div class="held-files">${list.length ? list.map(f => `<div class="held-file">${icon('file')}<div><strong>${escape(f.name)}</strong><span>${labels[f.category]} · ${formatSize(f.sizeMB)}</span></div></div>`).join('') : `<div class="empty-held">${icon('folder')}<strong>보류한 파일이 없어요.</strong><span>나중에 결정할 파일이 여기에 모여요.</span></div>`}</div>${list.length ? '<button class="primary-button" data-do="review-held">보류한 파일 다시 보기</button>' : ''}<button class="text-button" data-do="home">책상으로 돌아가기</button></section>`, 'held-view');
   }
   function render() {
+    document.documentElement.classList.toggle('modal-open', Boolean(modal));
     app.innerHTML = view === 'review' ? review() : view === 'held' ? held() : home();
     if (modal) renderModal();
     if (view === 'review' && !modal) document.querySelector('#file-card')?.focus({ preventScroll: true });
@@ -169,12 +180,13 @@
       announce(`${model.combo}연속 콤보 · 경험치 +100 · ${model.combo >= 5 ? '멈출 수 없어요!' : '멋진 한 방!'}`); confetti(16);
     } else announce(action === 'delete' ? '파일을 삭제했어요' : action === 'keep' ? '폴더에 보관했어요' : '나중에 결정하도록 보류했어요');
   }
-  function decide(action) {
+  function decide(action, horizontal = 0) {
     if (busy || view !== 'review' || stage !== 'review' || model.done) return;
     audio.unlock();
     if (game && action === 'delete') { crumple(); return; }
     setBusy(true); audio.paper();
-    const card = document.querySelector('.paper'); card?.classList.add(`file-${action}`);
+    const card = document.querySelector('.paper');
+    card?.classList.add(action === 'hold' && horizontal < 0 ? 'file-hold-left' : `file-${action}`);
     animationTimer = setTimeout(() => finishDecision(action), reduced ? 0 : 340);
   }
   async function crumple() {
@@ -239,13 +251,29 @@
     if (climate) { ice.undoRescue(iceHistory.pop()); iceEvent = ''; }
     view = 'review'; stage = 'review'; save(); audio.paper(); if (game) audio.start(); render(); announce('마지막 선택을 되돌렸어요');
   }
+  function soundControls() {
+    return `<div class="setting-row"><div>${icon('sound')}<span><strong>소리</strong><small>실제로 녹음한 종이 넘김·구김 소리</small></span></div><button class="switch ${audio.prefs.sound ? 'on' : ''}" role="switch" aria-checked="${audio.prefs.sound}" aria-label="소리" data-do="sound"><i></i></button></div><div class="volume-control"><label for="sound-volume">소리 크기 <output id="volume-value" for="sound-volume">${Math.round(audio.prefs.volume * 100)}%</output></label><input id="sound-volume" data-volume type="range" min="0" max="100" step="5" value="${Math.round(audio.prefs.volume * 100)}" aria-label="소리 크기"></div>${game ? `<div class="setting-row"><div>${icon('sound')}<span><strong>배경 리듬</strong><small>종이 소리 뒤에 작게 흐르는 잔잔한 리듬</small></span></div><button class="switch ${audio.prefs.music ? 'on' : ''}" role="switch" aria-checked="${audio.prefs.music}" aria-label="배경 리듬" data-do="music"><i></i></button></div>` : ''}<div class="sound-check"><div class="sound-test-buttons"><button class="sound-test" data-do="test-sound" ${audio.prefs.sound ? '' : 'disabled'}>종이 넘김 듣기</button><button class="sound-test" data-do="test-crumple" ${audio.prefs.sound ? '' : 'disabled'}>종이 구김 듣기</button></div><small>작은 소리로 시작해요. 기기의 음량에 맞게 조절해 주세요.</small></div>`;
+  }
+  function tutorialMarkup() {
+    return `<div class="tutorial-kicker">세 버전 모두 같은 조작</div><h2 id="tutorial-title">어느 방향으로 밀까요?</h2><p class="tutorial-intro">파일을 살펴보고, 원하는 방향으로 쓱 밀어 주세요.</p><div class="tutorial-map" aria-hidden="true"><span class="map-keep">↑ 보관</span><span class="map-hold-left">← 보류</span><div class="tutorial-paper">${icon('file')}<i></i><i></i></div><span class="map-hold-right">보류 →</span><span class="map-delete">↓ 삭제</span></div><div class="tutorial-directions"><div class="tutorial-direction tutorial-keep"><b>↑</b><span><strong>위로 밀면 보관</strong><small>필요한 파일은 폴더에 남겨요.</small></span></div><div class="tutorial-direction tutorial-hold"><b>↔</b><span><strong>좌우로 밀면 보류</strong><small>고민되는 파일은 나중에 결정해요.</small></span></div><div class="tutorial-direction tutorial-delete"><b>↓</b><span><strong>아래로 밀면 삭제</strong><small>${game ? '종이를 구겨 휴지통으로 쏙 던져요.' : '더는 필요 없는 파일을 정리해요.'}</small></span></div></div><p class="tutorial-note">잘못 골라도 ‘되돌리기’로 취소할 수 있어요.</p><button class="primary-button" data-do="finish-tutorial">알겠어요, 시작할게요</button><small class="tutorial-footer">설정에서 조작 안내를 다시 볼 수 있어요.</small>`;
+  }
+  function closeModal() {
+    if (modal === 'tutorial') {
+      tutorialSeen = true;
+      try { localStorage.setItem(tutorialKey, 'seen'); } catch {}
+      audio.unlock();
+    }
+    modal = ''; render();
+    if (game && view === 'review' && !model.done) audio.start();
+  }
   function renderModal() {
+    document.documentElement.classList.add('modal-open');
     document.querySelector('.modal-backdrop')?.remove();
     const hapticState = audio.hapticSupport();
-    const markup = modal === 'impact' ? `<div class="modal-icon">${icon('leaf')}</div><h2>클라우드에도 실제 공간이 필요해요.</h2><p>데이터센터에는 서버와 저장 장치, 냉각 설비가 있어요. 이를 가동하려면 전기가 필요하고, 전기를 생산하는 과정에서 온실가스가 배출될 수 있어요.</p><p>불필요한 사본도 저장 자원을 차지해요. 다만 파일 하나를 지웠을 때 줄어드는 탄소량을 일정한 수치로 환산할 수는 없어요.</p><div class="info-box">북극곰과 빙하는 환경 영향을 표현한 게임 연출이에요. 정리하는 동안 20초마다 빙하 한 조각이 떨어지고, 예시 파일 하나를 삭제하면 한 조각이 돌아와요. 화면을 나가거나 앱을 숨기거나 안내창을 열면 시간이 멈춰요. 실제 기후 변화를 계산한 결과는 아니에요.</div><a class="source-link" href="https://www.iea.org/reports/energy-and-ai/energy-demand-from-ai" target="_blank" rel="noopener">국제에너지기구(IEA) 자료 보기</a><button class="primary-button" data-do="close-modal">알겠어요</button>` : modal === 'reset' ? `<h2>처음부터 다시 해 볼까요?</h2><p>현재 버전에서 선택한 파일 상태와 연속 기록이 모두 초기화돼요.</p><button class="primary-button" data-do="confirm-reset">현재 버전 초기화</button><button class="text-button" data-do="close-modal">진행 상황 유지</button>` : `<h2>나에게 맞게 설정해요.</h2><div class="setting-row"><div>${icon('sound')}<span><strong>소리</strong><small>${game ? '종이 소리·배경 음악·완료 효과음' : climate ? '종이·빙하가 깨지고 돌아오는 소리' : '사각사각 종이 넘기는 소리'}</small></span></div><button class="switch ${audio.prefs.sound ? 'on' : ''}" role="switch" aria-checked="${audio.prefs.sound}" aria-label="소리" data-do="sound"><i></i></button></div><div class="sound-check"><button class="sound-test" data-do="test-sound" ${audio.prefs.sound ? '' : 'disabled'}>소리 확인하기</button><small>소리가 들리지 않으면 기기의 무음 설정을 확인해 주세요.</small></div><div class="setting-row haptics-setting"><div>${icon('phone')}<span><strong>진동 피드백</strong><small id="haptic-support-status">${hapticState.detail}</small></span></div><button class="switch ${hapticState.available && audio.prefs.haptics ? 'on' : ''}" role="switch" aria-checked="${hapticState.available && audio.prefs.haptics}" aria-label="진동 피드백" aria-describedby="haptic-support-status" ${hapticState.available ? '' : 'disabled'} data-do="haptics"><i></i></button></div><div class="haptic-check"><button class="haptic-test" data-do="test-haptics" ${hapticState.available && audio.prefs.haptics ? '' : 'disabled'}>진동 확인하기</button><p id="haptic-test-result" role="status" aria-live="polite"></p></div><div class="gesture-explainer"><span>${game ? '아래로 밀어 구겨 버리기' : '왼쪽으로 밀어 삭제'}</span><span>위로 밀어 보관</span><span>오른쪽으로 밀어 보류</span></div>${game ? '<p class="settings-note">아래로 한 번 밀면 바로 구겨서 던져요. 추가로 누를 필요는 없어요. 연속으로 삭제하면 콤보가 쌓이고, 버릴 때마다 경험치 100을 받아요.</p>' : ''}<button class="reset-demo" data-do="reset">처음부터 다시 하기</button><a class="source-link" href="../index.html">다른 정리 방식 선택</a><div class="demo-note">예시 파일로 체험 · 진행 상황은 이 기기에 저장돼요</div>`;
-    const host = document.createElement('div'); host.className = 'modal-backdrop';
-    host.innerHTML = `<section class="modal" role="dialog" aria-modal="true" aria-label="${modal === 'settings' ? '설정' : modal === 'reset' ? '프로토타입 초기화' : '환경 영향 안내'}"><button class="modal-close icon-button" data-do="close-modal" aria-label="안내창 닫기">${icon('close')}</button>${markup}</section>`;
-    app.append(host); host.querySelector('button')?.focus();
+    const markup = modal === 'tutorial' ? tutorialMarkup() : modal === 'impact' ? `<div class="modal-icon">${icon('leaf')}</div><h2>클라우드에도 실제 공간이 필요해요.</h2><p>데이터센터에는 서버와 저장 장치, 냉각 설비가 있어요. 이를 가동하려면 전기가 필요하고, 전기를 생산하는 과정에서 온실가스가 배출될 수 있어요.</p><p>불필요한 사본도 저장 자원을 차지해요. 다만 파일 하나를 지웠을 때 줄어드는 탄소량을 일정한 수치로 환산할 수는 없어요.</p><div class="info-box">북극곰과 빙하는 환경 영향을 표현한 게임 연출이에요. 정리하는 동안 20초마다 빙하 한 조각이 떨어지고, 예시 파일 하나를 삭제하면 한 조각이 돌아와요. 화면을 나가거나 앱을 숨기거나 안내창을 열면 시간이 멈춰요. 실제 기후 변화를 계산한 결과는 아니에요.</div><a class="source-link" href="https://www.iea.org/reports/energy-and-ai/energy-demand-from-ai" target="_blank" rel="noopener">국제에너지기구(IEA) 자료 보기</a><button class="primary-button" data-do="close-modal">알겠어요</button>` : modal === 'reset' ? `<h2>처음부터 다시 해 볼까요?</h2><p>현재 버전에서 선택한 파일 상태와 연속 기록이 모두 초기화돼요.</p><button class="primary-button" data-do="confirm-reset">현재 버전 초기화</button><button class="text-button" data-do="close-modal">진행 상황 유지</button>` : `<h2>나에게 맞게 설정해요.</h2>${soundControls()}<div class="setting-row haptics-setting"><div>${icon('phone')}<span><strong>진동 피드백</strong><small id="haptic-support-status">${hapticState.detail}</small></span></div><button class="switch ${hapticState.available && audio.prefs.haptics ? 'on' : ''}" role="switch" aria-checked="${hapticState.available && audio.prefs.haptics}" aria-label="진동 피드백" aria-describedby="haptic-support-status" ${hapticState.available ? '' : 'disabled'} data-do="haptics"><i></i></button></div><div class="haptic-check"><button class="haptic-test" data-do="test-haptics" ${hapticState.available && audio.prefs.haptics ? '' : 'disabled'}>진동 확인하기</button><p id="haptic-test-result" role="status" aria-live="polite"></p></div><div class="gesture-explainer"><span>${game ? '아래로 밀어 구겨 버리기' : '아래로 밀어 삭제'}</span><span>위로 밀어 보관</span><span>좌우로 밀어 보류</span></div>${game ? '<p class="settings-note">아래로 한 번 밀면 바로 구겨서 던져요. 추가로 누를 필요는 없어요. 연속으로 삭제하면 콤보가 쌓이고, 버릴 때마다 경험치 100을 받아요.</p>' : ''}<button class="tutorial-replay" data-do="tutorial">조작 방법 다시 보기</button><button class="reset-demo" data-do="reset">처음부터 다시 하기</button><a class="source-link" href="../index.html">다른 정리 방식 선택</a><div class="demo-note">예시 파일로 체험 · 진행 상황은 이 기기에 저장돼요</div>`;
+    const host = document.createElement('div'); host.className = `modal-backdrop ${modal === 'tutorial' ? 'tutorial-backdrop' : ''}`;
+    host.innerHTML = `<section class="modal ${modal === 'tutorial' ? 'tutorial-modal' : ''}" role="dialog" aria-modal="true" aria-label="${modal === 'tutorial' ? '조작 방법' : modal === 'settings' ? '설정' : modal === 'reset' ? '프로토타입 초기화' : '환경 영향 안내'}"><button class="modal-close icon-button" data-do="close-modal" aria-label="안내창 닫기">${icon('close')}</button>${markup}</section>`;
+    app.append(host); app.querySelector('.phone').inert = true; host.querySelector('button')?.focus();
   }
   app.addEventListener('click', e => {
     if (suppressClick) return;
@@ -253,12 +281,14 @@
     const decision = e.target.closest('[data-decision]'); if (decision) { decide(decision.dataset.decision); return; }
     
     const action = e.target.closest('[data-do]')?.dataset.do;
-    if (!action) { if (e.target.classList.contains('modal-backdrop')) { modal = ''; render(); } return; }
+    if (!action) { if (e.target.classList.contains('modal-backdrop') && modal !== 'tutorial') closeModal(); return; }
     if (busy) return;
     switch (action) {
       case 'home': goHome(); break;
       case 'sound': audio.unlock(); audio.set('sound', !audio.prefs.sound); save(); if (modal) renderModal(); else render(); break;
+      case 'music': audio.set('music', !audio.prefs.music); save(); renderModal(); break;
       case 'test-sound': audio.paper(); break;
+      case 'test-crumple': audio.crumple(); break;
       case 'haptics': if (audio.hapticSupport().available) { audio.set('haptics', !audio.prefs.haptics); audio.vibrate(); save(); renderModal(); } break;
       case 'test-haptics': {
         const result = document.querySelector('#haptic-test-result');
@@ -266,7 +296,8 @@
         break;
       }
       case 'settings': case 'impact': case 'reset': modal = action; if (modal === 'settings') audio.stop(); renderModal(); break;
-      case 'close-modal': modal = ''; render(); if (game && view === 'review' && !model.done) audio.start(); break;
+      case 'close-modal': case 'finish-tutorial': closeModal(); break;
+      case 'tutorial': audio.stop(); modal = 'tutorial'; renderModal(); break;
       case 'confirm-reset': audio.stop(); clearTimeout(animationTimer); model.reset(); ice.reset(); iceHistory = []; iceEvent = ''; modal = ''; view = 'home'; stage = 'review'; save(); render(); announce('책상이 새로워졌어요. 준비되면 시작해 보세요.'); break;
       case 'undo': undo(); break;
       case 'held': audio.stop(); view = 'held'; model.held = true; render(); break;
@@ -290,7 +321,7 @@
     drag.target.style.transform = `translate(${drag.dx}px, ${drag.dy * (scrunch ? .48 : 1)}px) rotate(${drag.dx / 18 + scrunch * 9}deg) scale(${1 - scrunch * .3},${1 - scrunch * .44})`;
     drag.target.style.borderRadius = scrunch ? `${scrunch * 30}%` : '';
     drag.target.classList.toggle('scrunch-preview', scrunch > .15);
-    const action = game && drag.dy > 55 && Math.abs(drag.dy) > Math.abs(drag.dx) ? 'delete' : drag.dy < -55 && Math.abs(drag.dy) > Math.abs(drag.dx) ? 'keep' : drag.dx < -55 ? 'delete' : drag.dx > 55 ? 'hold' : '';
+    const action = swipeAction(drag.dx, drag.dy, 28);
     const stamp = document.querySelector('#swipe-stamp');
     stamp.textContent = game && action === 'delete' ? '구기기' : ({ delete: '삭제', keep: '보관', hold: '보류' }[action] || '');
     stamp.className = `swipe-stamp ${action ? `show stamp-${action}` : ''}`;
@@ -301,21 +332,19 @@
     if (d.target.hasPointerCapture(e.pointerId)) d.target.releasePointerCapture(e.pointerId);
     if (Math.abs(d.dx) + Math.abs(d.dy) > 12) { suppressClick = true; setTimeout(() => suppressClick = false, 80); }
     if (cancelled) { d.target.style.transform = ''; d.target.style.borderRadius = ''; d.target.classList.remove('scrunch-preview'); const stamp = document.querySelector('#swipe-stamp'); if (stamp) stamp.className = 'swipe-stamp'; return; }
-    const downward = game && d.dy > 55 && Math.abs(d.dy) > Math.abs(d.dx);
-    if (downward || (game && d.dx < -65)) { decide('delete'); return; }
+    const action = swipeAction(d.dx, d.dy);
+    if (game && action === 'delete') { decide('delete'); return; }
     d.target.style.transform = ''; d.target.style.borderRadius = ''; d.target.classList.remove('scrunch-preview');
-    if (d.dy < -65 && Math.abs(d.dy) > Math.abs(d.dx)) decide('keep');
-    else if (d.dx < -65) decide('delete');
-    else if (d.dx > 65) decide('hold');
+    if (action) decide(action, d.dx);
     else { const stamp = document.querySelector('#swipe-stamp'); if (stamp) stamp.className = 'swipe-stamp'; }
   }
   app.addEventListener('pointerup', e => endDrag(e));
   app.addEventListener('pointercancel', e => endDrag(e, true));
   document.addEventListener('keydown', e => {
     if (modal) {
-      if (e.key === 'Escape') { modal = ''; render(); }
+      if (e.key === 'Escape') { closeModal(); return; }
       if (e.key === 'Tab') {
-        const focusable = [...document.querySelectorAll('.modal button, .modal a')].filter(el => !el.disabled);
+        const focusable = [...document.querySelectorAll('.modal button, .modal a, .modal input')].filter(el => !el.disabled);
         if (!focusable.length) return;
         if (e.shiftKey && document.activeElement === focusable[0]) { e.preventDefault(); focusable.at(-1).focus(); }
         else if (!e.shiftKey && document.activeElement === focusable.at(-1)) { e.preventDefault(); focusable[0].focus(); }
@@ -323,11 +352,17 @@
       return;
     }
     if (view !== 'review' || busy || model.done) return;
-    if (['ArrowLeft', 'ArrowUp', 'ArrowRight', ...(game ? ['ArrowDown'] : [])].includes(e.key) && stage === 'review') {
-      e.preventDefault(); decide({ ArrowLeft: 'delete', ArrowDown: 'delete', ArrowUp: 'keep', ArrowRight: 'hold' }[e.key]);
+    if (['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown'].includes(e.key) && stage === 'review') {
+      e.preventDefault(); decide({ ArrowLeft: 'hold', ArrowDown: 'delete', ArrowUp: 'keep', ArrowRight: 'hold' }[e.key], e.key === 'ArrowLeft' ? -1 : 1);
     } else if (e.key === 'Escape' && stage !== 'review') { stage = 'review'; render(); }
   });
   document.addEventListener('visibilitychange', () => { tickAt = performance.now(); });
+  app.addEventListener('input', e => {
+    if (!e.target.matches('[data-volume]')) return;
+    audio.set('volume', Number(e.target.value) / 100); save();
+    const output = document.querySelector('#volume-value');
+    if (output) output.textContent = `${Math.round(audio.prefs.volume * 100)}%`;
+  });
   app.addEventListener('dragstart', e => { if (e.target.closest('#file-card,.office,.polar-scene')) e.preventDefault(); });
   window.addEventListener('pagehide', () => audio.stop());
   render();
